@@ -1,0 +1,172 @@
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body>
+<center>
+<div>
+<img id="loader" src="/image_loader.gif" />
+</div>
+<div id="otp-div" style="display: none">
+<input id="otp" type="text" name="otp" value="" size=10 style="font-size: 24px;"/>
+<button onclick="copyTextToClipboard()" id="copy" type="submit" name="copy" style="font-size: 24px;">copy</button>
+</div>
+<div>
+<span id="message" style="font-size: 24px;"></span>
+</div>
+</center>
+<script>
+var api_gateway_root = "https://API_GATEWAY_ENDPOINT/sms2fa";
+var session_id = generateUUID();
+
+window.onload = function() {
+    var params = getQueryParams();
+    if (!('token' in params)) {
+        document.getElementById("loader").src="/image_blank.png";
+        document.getElementById('message').innerHTML = '';
+        return;
+    }
+
+    authenticatePasskey(params['token']);
+}
+
+async function authenticatePasskey(token) {
+    try {
+
+        // Fetch authentication options from server
+        const response = await fetch(`${api_gateway_root}/authoptions?session_id=${session_id}`);
+        const data = await response.json();
+
+        if (!('status' in data) || data['status'] == 'error') {
+            document.getElementById("loader").src="/image_blank.png";
+            document.getElementById('message').innerHTML = 'Error getting authentication options: ' + data['error'];
+            return;
+        }
+
+        const options = data['authoptions'];
+
+        // Create credential request to be passed to navigator.credentials.get
+        const credentialRequest = {
+            publicKey: {
+                challenge: arrayToArrayBuffer(options.challenge),
+                allowCredentials: options.allow_credentials.map(cred => ({
+                    type: 'public-key',
+                    id: base64StringToArrayBuffer(cred.id)
+                }))
+            }
+        };
+
+        // Request user authentication
+        const credential = await navigator.credentials.get(credentialRequest);
+
+        const authenticationData = {
+            rawId: arrayBufferToBase64(credential.rawId),
+            response: {
+                authenticatorData: arrayBufferToBase64(credential.response.authenticatorData),
+                clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
+                signature: arrayBufferToBase64(credential.response.signature),
+            },
+            type: credential.type
+        };
+
+        const verificationResponse = await fetch(`${api_gateway_root}/authenticate?session_id=${session_id}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                authentication_data: authenticationData,
+                token: token,
+                user_id: credential.id
+            })
+        });
+        const adata = await verificationResponse.json();
+
+        if (adata['status'] == 'ok') {
+            document.getElementById("loader").src="/image_blank.png";
+            document.getElementById('otp').value = adata['code'];
+            document.getElementById('otp-div').style = 'display: block';
+            return;
+        } else {
+            document.getElementById("loader").src="/image_blank.png";
+            document.getElementById('message').innerHTML = 'Error authenticating passkey: ' + adata['error'];
+            return;
+        }
+    } catch (error) {
+        if (error == 'TypeError: Load failed') {
+            setTimeout(function() {
+                registerPasskey();
+            }, 3000);
+        } else {
+            document.getElementById("loader").src="/image_blank.png";
+            document.getElementById('message').innerHTML = 'Error getting authentication options: ' + error;
+            return;
+        }
+    }
+}
+
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
+}
+
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        const r = crypto.getRandomValues(new Uint8Array(1))[0] % 16;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+}
+
+function base64StringToArrayBuffer( str ) {
+    const binaryString = decodeURIComponent(escape(window.atob( str )));
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+
+    for (let i = 0; i < len; ++i) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    return bytes.buffer;
+}
+
+function arrayToArrayBuffer(data) {
+    const bytes = new Uint8Array(data.length);
+
+    for (let i = 0; i < data.length; ++i) {
+        bytes[i] = data[i];
+    }
+
+    return bytes.buffer;
+}
+
+function copyTextToClipboard() {
+    var text = document.getElementById('otp').value;
+    navigator.clipboard.writeText(text).then(function() {
+        }, function(err) {
+          console.error('Could not copy text: ', err);
+    });
+}
+
+function getQueryParams() {
+    // Get the URL's query string
+    const queryString = window.location.search;
+
+    // Parse the query string
+    const urlParams = new URLSearchParams(queryString);
+
+    // Get all query parameters
+    const params = {};
+    for (const [key, value] of urlParams.entries()) {
+        params[key] = value;
+    }
+
+    return params;
+}
+</script>
+</body>
+</html>

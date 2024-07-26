@@ -1,0 +1,156 @@
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body>
+<center>
+<div>
+<img id="loader" src="/image_loader.gif" />
+</div>
+<div>
+<span id="message">Initiating registration...</span>
+</div>
+</center>
+<script>
+var api_gateway_root = "https://API_GATEWAY_ENDPOINT/sms2fa";
+var session_id = generateUUID();
+
+window.onload = function() {
+    registerPasskey();
+}
+
+async function registerPasskey() {
+    try {
+        var params = getQueryParams();
+        if (!('user_id' in params) || !('token' in params)) {
+            document.getElementById('message').innerHTML = 'Invalid registration URL';
+            return;
+        }
+
+        const response = await fetch(`${api_gateway_root}/regoptions?session_id=${session_id}&user_id=${params['user_id']}&token=${params['token']}`);
+        const options = await response.json();
+
+        if (!('status' in options) || options['status'] == 'error') {
+            document.getElementById("loader").src="/image_blank.png";
+            document.getElementById('message').innerHTML = 'Error registering passkey: ' + options['error'];
+            return;
+        }
+
+        document.getElementById('message').innerHTML = 'Registering passkey...';
+
+        options.regoptions.challenge = stringToUint8Array(options.regoptions.challenge)
+
+        const hashedUserId = await hashString(options.regoptions.user.id);
+        options.regoptions.user.id = new Uint8Array(hashedUserId);
+
+        if (options.regoptions.excludeCredentials) {
+            options.regoptions.excludeCredentials = options.regoptions.excludeCredentials.map(cred => {
+                cred.id = base64ToArrayBuffer(cred.id);
+                return cred;
+            });
+        }
+
+        const credential = await navigator.credentials.create({ publicKey: options.regoptions });
+
+        const credentialData = {
+            id: credential.id,
+            rawId: arrayBufferToBase64(credential.rawId),
+            type: credential.type,
+            response: {
+                clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
+                attestationObject: arrayBufferToBase64(credential.response.attestationObject)
+            },
+            sessionId: session_id,
+            user_id: params['user_id'],
+            token: params['token']
+        };
+
+        const verificationResponse = await fetch(`${api_gateway_root}/register`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(credentialData)
+        });
+
+        document.getElementById("loader").src="/image_blank.png";
+
+        if (verificationResponse.ok) {
+            document.getElementById('message').innerHTML = 'Passkey registered successfully';
+        } else {
+            document.getElementById('message').innerHTML = 'Error registering passkey';
+        }
+    } catch (error) {
+        if (error == 'TypeError: Load failed') {
+            setTimeout(function() {
+                registerPasskey();
+            }, 3000);
+        } else {
+            document.getElementById("loader").src="/image_blank.png";
+            document.getElementById('message').innerHTML = 'Error during passkey registration: ' + error;
+        }
+    }
+}
+
+function base64ToArrayBuffer(base64) {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
+}
+
+// Helper function to convert string to Uint8Array
+function stringToUint8Array(str) {
+    const utf8 = unescape(encodeURIComponent(str));
+    const arr = new Uint8Array(utf8.length);
+    for (let i = 0; i < utf8.length; i++) {
+        arr[i] = utf8.charCodeAt(i);
+    }
+    return arr;
+}
+
+// Helper function to hash a string using SHA-256
+async function hashString(str) {
+    const utf8 = new TextEncoder().encode(str);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', utf8);
+    return hashBuffer;
+}
+
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        const r = crypto.getRandomValues(new Uint8Array(1))[0] % 16;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+}
+
+function getQueryParams() {
+    // Get the URL's query string
+    const queryString = window.location.search;
+
+    // Parse the query string
+    const urlParams = new URLSearchParams(queryString);
+
+    // Get all query parameters
+    const params = {};
+    for (const [key, value] of urlParams.entries()) {
+        params[key] = value;
+    }
+
+    return params;
+}
+</script>
+</body?
+</html>

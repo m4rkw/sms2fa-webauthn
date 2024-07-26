@@ -1,0 +1,9 @@
+data "terraform_remote_state" "ssl" {
+  backend = "s3"
+  config = {
+    bucket = "<YOUR BUCKET>"
+    key = "/path/to/terraform.tfstate"
+    region = "eu-west-1"
+    profile = "default"
+  }
+}

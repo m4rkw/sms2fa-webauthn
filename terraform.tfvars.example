@@ -1,0 +1,7 @@
+aws_region              = "eu-west-1"
+domain                  = "mydomain.com"
+auth_endpoint           = "auth.mydomain.com"
+cloudflare_api_token    = "MY_CLOUDFLARE_TOKEN"
+s3_bucket_name          = "my_sms2fa_bucket"
+pushover_user           = "YOUR_PUSHOVER_USER_KEY"
+pushover_app            = "YOUR_PUSHOVER_APP_KEY"
