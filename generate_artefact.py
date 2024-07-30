@@ -3,6 +3,7 @@
 import zipfile
 import os
 import sys
+import datetime
 
 def create_idempotent_zip(zip_filename, *source_dirs):
     if os.path.exists(zip_filename):
@@ -10,7 +11,9 @@ def create_idempotent_zip(zip_filename, *source_dirs):
 
     def add_to_zip(zipf, file_path, arcname):
         zip_info = zipfile.ZipInfo(arcname)
-        zip_info.date_time = (1980, 1, 1, 0, 0, 0)
+        mtime = os.stat(file_path).st_mtime
+        dt = datetime.datetime.fromtimestamp(mtime)
+        zip_info.date_time = (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
         zip_info.external_attr = 0o644 << 16
         with open(file_path, 'rb') as f:
             zipf.writestr(zip_info, f.read())
